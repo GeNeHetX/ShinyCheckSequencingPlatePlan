@@ -1,3 +1,15 @@
+# TODO :
+# Check if right excel by comparing all the content of the sheets to the excel template online (link to the template in the procedure)
+# Ask user to look at the procedure if errors found
+# Check if "Platewell" column is correctly filled by checking the "plateplan" sheet 
+# (This column is filled even if the rest of the line is empty but ignore for the checks if so and show the user what lines are ignored )
+# Check content of columns to match avlues listed in "RefModalities" for each column
+# Compare RefModalities of the provided excel to the one in the online template excel to check if any values have been added and prompt to ask the person in charge
+# Check if added values in RefModalities have the right nomenclature( First character = letter, only letters, numbers, _and -, no spaces)
+# Maybe do one single datatable with values not in RefModalities but color the wrong cells instead of whole columns
+# Files names in "ID_scanSVS" and "ID_annotationXML" for the Beaujon version of the template must be identical and have the right extension
+# Bug: Results saying all projects exist with wrong project name 
+
 #====================
 # Initialization
 #====================
@@ -463,7 +475,11 @@ server <- function(input, output) {
         wrongNomenclatureRows,
         names(wrongNomenclatureRows),
         "ID_NucleicAcid",
-        "Nucleic Acid IDs do not follow the right nomenclature for the following sample(s).",
+        tagList(
+          "Nucleic Acid IDs do not follow the right nomenclature for the following sample(s).",
+          br(), 
+          "(Please use IDs containing only letters, number and \"_\" and starting only with a letter (no number or \"_\" at the start of the ID).)"
+        ),
         "All Nucleic Acid IDs follow the right nomenclature."
       )
 
@@ -590,7 +606,11 @@ server <- function(input, output) {
             wrongNomenclatureRows,
             names(wrongNomenclatureRows),
             "ID_NucleicAcid",
-            "Nucleic Acid IDs do not follow the right nomenclature for the following sample(s).",
+            tagList(
+              "Nucleic Acid IDs do not follow the right nomenclature for the following sample(s).",
+              br(), 
+              "(Please use IDs containing only letters, number and \"_\" and starting only with a letter (no number or \"_\" at the start of the ID).)"
+            ),
             "All Nucleic Acid IDs follow the right nomenclature."
           )
 
