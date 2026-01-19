@@ -8,7 +8,7 @@
 # Check if added values in RefModalities have the right nomenclature( First character = letter, only letters, numbers, _and -, no spaces)
 # Maybe do one single datatable with values not in RefModalities but color the wrong cells instead of whole columns
 # Files names in "ID_scanSVS" and "ID_annotationXML" for the Beaujon version of the template must be identical and have the right extension
-# Bug: Results saying all projects exist with wrong project name 
+
 
 #====================
 # Initialization
@@ -180,7 +180,7 @@ getUniqueProjectsInSerge <- function(df, con){
   dbGetQuery(
     con,
     "SELECT DISTINCT acquisition FROM rawfile WHERE is_current = 'TRUE';",
-  )
+  )[["acquisition"]]
 
 }
 
@@ -191,8 +191,7 @@ checkIfProjectMissingFromSerge <- function(df, projectsInSerge, incrementSize = 
     # Progress update
     if (!is.null(incrementSize)) incProgress(incrementSize)
 
-    # If no files → return NULL
-    if (df$Project[i] %in% projectsInSerge) {
+    if (!(df$Project[i] %in% projectsInSerge)) {
       data.frame(
         Line_Number   = df$Line_Number[i],
         ID_NucleicAcid = df$ID_NucleicAcid[i],
@@ -202,9 +201,6 @@ checkIfProjectMissingFromSerge <- function(df, projectsInSerge, incrementSize = 
     }else{
       return(NULL)
     }
-
-    # Otherwise return ONE data frame row
-    
   })
 
   # Remove NULLs and bind once
