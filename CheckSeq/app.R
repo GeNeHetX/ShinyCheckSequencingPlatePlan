@@ -3,7 +3,7 @@
 # Ask user to look at the procedure if errors found
 # Check if "Platewell" column is correctly filled by checking the "plateplan" sheet 
 # (This column is filled even if the rest of the line is empty but ignore for the checks if so and show the user what lines are ignored )
-# Check content of columns to match avlues listed in "RefModalities" for each column
+# Check content of columns to match values listed in "RefModalities" for each column
 # Compare RefModalities of the provided excel to the one in the online template excel to check if any values have been added and prompt to ask the person in charge
 # Check if added values in RefModalities have the right nomenclature( First character = letter, only letters, numbers, _and -, no spaces)
 # Maybe do one single datatable with values not in RefModalities but color the wrong cells instead of whole columns
@@ -36,6 +36,13 @@ con <- dbConnect(
 ERROR_STYLE <- "color:#B20000; font-size:18px;"
 SUCCESS_STYLE <- "color:#00B200; font-size:18px;"
 
+# Constants used to define the right column names of dataframes
+# TODO : Update when templates are changed or get names directly from online templates
+CORE_TEMPLATE_NUCLEIC_ACID_COLNAMES <- c("ID_NucleicAcid",	"Platewell",	"ng",	"microL",	"ID_Sample",	"Project",	"Species",	"StorageBeforeExtraction",	"SampleFrom",	"RnaExtractedFrom",	"ExtractionMethod")
+CORE_TEMPLATE_PLATEPLAN_COLNAMES <- c("1",  "2",  "3",  "4",  "5",  "6",  "7",  "8",  "9",  "10", "11", "12")
+CORE_TEMPLATE_PLATEPLAN_ROWNAMES <- c("A", "B", "C", "D", "E", "F", "G", "H")
+CORE_TEMPLATE_REFMODALITIES_COLNAMES <- c("Species",	"Project",	"StorageBeforeExtraction",	"RnaExtractedFrom",	"SampleFrom",	"ExtractionMethod")
+
 # Used to avoid error on file upload size
 options(shiny.maxRequestSize = -1)
 
@@ -57,17 +64,50 @@ checkIfRightExcel <- function(pathToExcel){
     isSheetRefModalitiesMissing = !("RefModalities" %in% sheets)
   )
 
+  errors <- c(
+    errors,
+    isSheetNucleicAcidWrong = if (errors["isSheetNucleicAcidMissing"]) FALSE else checkIfWrongSheet(readNucleicAcidSheet(pathToExcel), templateColnames = CORE_TEMPLATE_NUCLEIC_ACID_COLNAMES),
+    isSheetPlateplanWrong = if (errors["isSheetPlateplanMissing"]) FALSE else checkIfWrongSheet(readPlateplanSheet(pathToExcel), templateColnames = CORE_TEMPLATE_PLATEPLAN_COLNAMES, templateRownames = CORE_TEMPLATE_PLATEPLAN_ROWNAMES),
+    isSheetRefModalitiesWrong = if (errors["isSheetRefModalitiesMissing"]) FALSE else checkIfWrongSheet(readRefModalitiesSheet(pathToExcel), templateColnames = CORE_TEMPLATE_REFMODALITIES_COLNAMES)
+  )
+
   errors
+}
+
+# Checks if the names of the columns and/or the rows in the sheet matches its corresponding names to check if the sheet is the correct one.
+checkIfWrongSheet <- function(df, templateColnames = NULL, templateRownames = NULL){
+  
+  areCoreColnamesMissing <- NULL
+  areCoreRownamesMissing <- NULL
+
+  print("Start")
+
+  if (!(is.null(templateColnames))){
+    print("col")
+    sheetColnames <- colnames(df)
+    areCoreColnamesMissing <- vapply(templateColnames, function(i) (!(i %in% sheetColnames)), logical(1))
+    print(areCoreColnamesMissing)
+  }
+
+  if (!(is.null(templateRownames))){
+    sheetRownames <- rownames(df)
+    areCoreRownamesMissing <- vapply(templateRownames, function(i) (!(i %in% sheetRownames)), logical(1))
+    print(areCoreRownamesMissing)
+  }
+
+  print("Done")
+
+  any(c(areCoreColnamesMissing, areCoreRownamesMissing))
 }
 
 # Create error message to be rendered in case of wrong excel file chosen
 getErrorMessageWrongExcelSheet <- function(errors){
 
-  errorMessageLines <- NULL
+  errorMessageLines <- tagList(span("Errors :", style= ERROR_STYLE), br())
 
   # Error line for an excel file with the wrong number of sheets if needed
   if (errors["hasWrongNumberOfSheets"])
-    errorMessageLines <- tagList(errorMessageLines, span("Error: File must have exactly 3 sheets.", style= ERROR_STYLE), br())
+    errorMessageLines <- tagList(errorMessageLines, span("- File must have exactly 3 sheets.", style= ERROR_STYLE), br())
 
   # Error line specifying the missing sheets if needed
   if (any(errors[c("isSheetNucleicAcidMissing", "isSheetPlateplanMissing", "isSheetRefModalitiesMissing")])) {
@@ -81,9 +121,32 @@ getErrorMessageWrongExcelSheet <- function(errors){
       errorMessageLines,
       span(
         paste0(
-          "Error: Missing sheets (",
+          "- Missing sheets (",
           paste(
             missingSheets,
+            collapse = ", "
+          ),
+          ")"
+        ),
+        style= ERROR_STYLE
+      ),
+      br()
+    )
+  }
+
+  if (any(errors[c("isSheetNucleicAcidWrong", "isSheetPlateplanWrong", "isSheetRefModalitiesWrong")])) {
+    wrongSheets <- c()
+    if (errors["isSheetNucleicAcidWrong"]){ wrongSheets <- c(wrongSheets, "nucleic_acid") }
+    if (errors["isSheetPlateplanWrong"]){ wrongSheets <- c(wrongSheets,  "plateplan") }
+    if (errors["isSheetRefModalitiesWrong"]){ wrongSheets <- c(wrongSheets, "RefModalities") }
+
+    errorMessageLines <- tagList(
+      errorMessageLines,
+      span(
+        paste0(
+          "- Sheets containing wrong tables (",
+          paste(
+            wrongSheets,
             collapse = ", "
           ),
           ")"
@@ -111,6 +174,21 @@ toggleSubmitButton <- function(errors, submitButtonTag){
 readNucleicAcidSheet <- function(pathToExcel){
   df <- read_excel(pathToExcel, sheet = "nucleic_acid")
   names(df)[1] <- "Line_Number"
+  df
+}
+
+# Returns a slightly formated version of the data in the plateplan sheet of the excel file as a dataframe
+readPlateplanSheet <- function(pathToExcel){
+  df <- read_excel(pathToExcel, sheet = "plateplan", range = "A1:M9", col_names = TRUE)
+  df <- as.data.frame(df)
+  rownames(df) <- df[[1]]
+  df[[1]] <- NULL
+  df
+}
+
+# Returns a slightly formated version of the data in the RefModalities sheet of the excel file as a dataframe
+readRefModalitiesSheet <- function(pathToExcel){
+  df <- read_excel(pathToExcel, sheet = "RefModalities", col_names = TRUE)
   df
 }
 
