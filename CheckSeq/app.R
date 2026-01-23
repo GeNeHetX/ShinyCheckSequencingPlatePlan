@@ -338,16 +338,7 @@ checkIfProjectMissingFromSerge <- function(df, projectsInSerge, incrementSize = 
     # Progress update
     if (!is.null(incrementSize)) incProgress(incrementSize)
 
-    if (!(df$Project[i] %in% projectsInSerge)) {
-      data.frame(
-        Line_Number   = df$Line_Number[i],
-        ID_NucleicAcid = df$ID_NucleicAcid[i],
-        Project       = df$Project[i],
-        stringsAsFactors = FALSE
-      )
-    }else{
-      return(NULL)
-    }
+    (!(df$Project[i] %in% projectsInSerge))
   })
 
   # Remove NULLs and bind once
@@ -699,13 +690,13 @@ server <- function(input, output) {
       projectsInSerge <- getUniqueProjectsInSerge(dataNucleicAcidSheetTablePreSeq, con)
 
       # Defines a dataframe that will be used to store the names of the rawfiles registered in the Serge database for each NucleicAcid_ID if there are any
-      dfSamplesWithMissingProjectInSerge <- checkIfProjectMissingFromSerge(dataNucleicAcidSheetTablePreSeq, projectsInSerge, incrementSize)
+      dfSamplesWithMissingProjectInSerge <- dataNucleicAcidSheetTablePreSeq[checkIfProjectMissingFromSerge(dataNucleicAcidSheetTablePreSeq, projectsInSerge, incrementSize), ]
 
       checkProjectNotInSergeSection <- createCheckResultSection(
         dfSamplesWithMissingProjectInSerge, 
         names(dfSamplesWithMissingProjectInSerge),
         "Project",
-        "Projects of following files are missing from Serge database for provided samples (check if new projects).",
+        "Following projects are missing from Serge database for provided samples (check if new projects).",
         "All projects exist."
       )
 
@@ -830,7 +821,7 @@ server <- function(input, output) {
           projectsInSerge <- getUniqueProjectsInSerge(dataNucleicAcidSheetTablePostSeq, con)
 
           # Defines a dataframe that will be used to store the names of the rawfiles registered in the Serge database for each NucleicAcid_ID if there are any
-          dfSamplesWithMissingProjectInSerge <- checkIfProjectMissingFromSerge(dataNucleicAcidSheetTablePostSeq, projectsInSerge, incrementSize)
+          dfSamplesWithMissingProjectInSerge <- dataNucleicAcidSheetTablePostSeq[checkIfProjectMissingFromSerge(dataNucleicAcidSheetTablePostSeq, projectsInSerge, incrementSize), ]
 
           checkProjectNotInSergeSection <- createCheckResultSection(
             dfSamplesWithMissingProjectInSerge, 
