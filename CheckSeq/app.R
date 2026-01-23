@@ -15,7 +15,7 @@
 #====================
 
 # Required packages
-pkgs <- c("shiny","shinydashboard", "DT", "DBI", "RPostgres", "readxl", "shinyjs", "ssh")
+pkgs <- c("shiny","shinydashboard", "DT", "DBI", "RPostgres", "readxl", "shinyjs", "ssh", "httr")
 
 # Import required packages
 for (p in pkgs) {
@@ -33,12 +33,25 @@ con <- dbConnect(
 )
 
 # Constants used to define the styles of the messages rendered
-ERROR_STYLE <- "color:#B20000; font-size:18px;"
-SUCCESS_STYLE <- "color:#00B200; font-size:18px;"
+ERROR_COLOR <- "#B20000"
+ERROR_STYLE <- paste0("color:", ERROR_COLOR, "; font-size:18px;")
+
+SUCCESS_COLOR <- "#00B200"
+SUCCESS_STYLE <- paste0("color:", SUCCESS_COLOR, "; font-size:18px;")
+
+WARNING_COLOR <- "#FF8800"
+WARNING_STYLE <- paste0("color:", WARNING_COLOR, "; font-size:18px;")
+
+# Links of procedure document and template excels online
+# /!\ Change links if need be when procedure or templates are updated and keep the "&download=1" for the download to function correctly (& if already an argument passed after ? and ? if first argument in the link)
+LINK_PROCEDURE <- "https://insermfrance-my.sharepoint.com/:w:/g/personal/diana_mendes_inserm_fr/IQCp1XhWSPg9RbJAnDkLJ1sZAaRnWzzg4NutQvwCjbgw32Y?rtime=Wb4USN1Y3kg"
+LINK_TEMPLATE_BEAUJON <- paste0("https://insermfrance-my.sharepoint.com/:x:/g/personal/diana_mendes_inserm_fr/EY7pQMaGMnZCgokPQDgbbDwBSoT_OJEHfx473bbap1oPtA?e=zwXRao","&download=1")
+LINK_TEMPLATE_EXT <- paste0("https://insermfrance-my.sharepoint.com/:x:/g/personal/diana_mendes_inserm_fr/EbTlTtY0vwNFvWhwVduU_q0BDNav3LyoAbX9-8f90GH9Bw?e=hh6pbT","&download=1")
 
 # Constants used to define the right column names of dataframes
 # TODO : Update when templates are changed or get names directly from online templates
 CORE_TEMPLATE_NUCLEIC_ACID_COLNAMES <- c("ID_NucleicAcid",	"Platewell",	"ng",	"microL",	"ID_Sample",	"Project",	"Species",	"StorageBeforeExtraction",	"SampleFrom",	"RnaExtractedFrom",	"ExtractionMethod")
+BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES <- c("ID_layer", "ID_scanSVS", "ID_annotationXML")
 CORE_TEMPLATE_PLATEPLAN_COLNAMES <- c("1",  "2",  "3",  "4",  "5",  "6",  "7",  "8",  "9",  "10", "11", "12")
 CORE_TEMPLATE_PLATEPLAN_ROWNAMES <- c("A", "B", "C", "D", "E", "F", "G", "H")
 CORE_TEMPLATE_REFMODALITIES_COLNAMES <- c("Species",	"Project",	"StorageBeforeExtraction",	"RnaExtractedFrom",	"SampleFrom",	"ExtractionMethod")
@@ -80,30 +93,55 @@ checkIfWrongSheet <- function(df, templateColnames = NULL, templateRownames = NU
   areCoreColnamesMissing <- NULL
   areCoreRownamesMissing <- NULL
 
-  print("Start")
-
   if (!(is.null(templateColnames))){
-    print("col")
     sheetColnames <- colnames(df)
     areCoreColnamesMissing <- vapply(templateColnames, function(i) (!(i %in% sheetColnames)), logical(1))
-    print(areCoreColnamesMissing)
   }
 
   if (!(is.null(templateRownames))){
     sheetRownames <- rownames(df)
     areCoreRownamesMissing <- vapply(templateRownames, function(i) (!(i %in% sheetRownames)), logical(1))
-    print(areCoreRownamesMissing)
   }
 
-  print("Done")
-
   any(c(areCoreColnamesMissing, areCoreRownamesMissing))
+}
+
+extraChecksExcel <- function(pathToExcel, isBeaujonTemplate){
+
+  templateTempfile <- tempfile(fileext = ".xlsx")
+
+  GET(
+    if (isBeaujonTemplate) LINK_TEMPLATE_BEAUJON else LINK_TEMPLATE_EXT,
+    write_disk(templateTempfile, overwrite = TRUE)
+  )
+
+  dfTemplateRefModalities <- readRefModalitiesSheet(templateTempfile)
+  dfCheckedRefModalities <- readRefModalitiesSheet(pathToExcel)
+
+  missingRefModalitiesMask <- createMismatchMask(dfTemplateRefModalities, dfCheckedRefModalities)
+
+  warnings <- list(areRefModalitiesMissing = do.call(cbind, missingRefModalitiesMask))
+
+  warnings
+
+}
+
+createMismatchMask <- function(dfTemplate, df){
+  as.data.frame(
+    mapply(
+      function(colTemplate, colChecked) !(colChecked %in% colTemplate),
+      dfTemplate,
+      df,
+      SIMPLIFY = FALSE
+    ),
+    stringsAsFactors = FALSE
+  )
 }
 
 # Create error message to be rendered in case of wrong excel file chosen
 getErrorMessageWrongExcelSheet <- function(errors){
 
-  errorMessageLines <- tagList(span("Errors :", style= ERROR_STYLE), br())
+  errorMessageLines <- tagList(h3("Errors :", style= paste0("color: ", ERROR_COLOR, ";")))
 
   # Error line for an excel file with the wrong number of sheets if needed
   if (errors["hasWrongNumberOfSheets"])
@@ -157,8 +195,39 @@ getErrorMessageWrongExcelSheet <- function(errors){
     )
   }
 
+  errorMessageLines <- tagList(errorMessageLines, br(), span("(Please check the procedure at the following location : ", a("RNASeqProcedureICM", " )", href=LINK_PROCEDURE), style= ERROR_STYLE), br())
+
   # Error lines combined if multiple
   errorMessageLines
+}
+
+getWarningMessageExcelSheet <- function(warnings, pathToExcel){
+
+  warningMessageSection <- tagList(
+    h3("Warning :", style = paste0("color: ", WARNING_COLOR, ";"))
+  )
+
+  # Check if any RefModalities are missing
+  if (any(warnings$areRefModalitiesMissing)){
+    # Read Excel sheet
+    dfCheckedRefModalities <- readRefModalitiesSheet(pathToExcel)
+
+    missingRefModalities <- dfCheckedRefModalities[warnings$areRefModalitiesMissing]
+
+    # Build warning message with datatable
+    warningMessageSection <- tagList(
+      warningMessageSection,
+      span(
+        "Highlighted RefModalities don't match the template. Please contact the person in charge of the template to add new RefModalities.",
+        style = WARNING_STYLE
+      ),
+      br(),
+        # Create datatable
+        datatable(dfCheckedRefModalities, options = list(scrollX = TRUE, dom = "rtip"), rownames = FALSE)  |> formatStyle(names(dfCheckedRefModalities), backgroundColor = styleEqual(missingRefModalities, WARNING_COLOR) , color = styleEqual(missingRefModalities, "white") )
+    )
+  }
+
+  warningMessageSection
 }
 
 # Activates the submit button if a correct excel file has been selected and deactivates it if not
@@ -323,7 +392,7 @@ createFormattedDataTable <- function(df, colnames, coloredColumn){
     extensions = "Buttons",
     rownames = FALSE,
     colnames = colnames
-  ) |> formatStyle(columns = coloredColumn, backgroundColor = "#B20000", color = "white")
+  ) |> formatStyle(columns = coloredColumn, backgroundColor = ERROR_COLOR, color = "white")
 }
 
 # Factory function for the UI sections rendered in the results
@@ -456,11 +525,23 @@ server <- function(input, output) {
     checkIfRightExcel(input$samplesInfoTablePreSeq$datapath)
   })
 
-  # TODO: Check columns instead
   # Checks if the provided excel file is the right one for the post-sequencing step
   validateExcelPost <- reactive({
     req(input$samplesInfoTablePostSeq)
     checkIfRightExcel(input$samplesInfoTablePostSeq$datapath)
+  })
+
+  # Checks if the excel provided is the Beajon version or the external one (some additionnal columns in the nucleic_acid sheet of the Beaujon one)
+  isExcelBeaujonVersionPre <- reactive({
+    req(input$samplesInfoTablePreSeq)
+    req(!(any(validateExcelPre())))
+    any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePreSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
+  })
+
+  isExcelBeaujonVersionPost <- reactive({
+    req(input$samplesInfoTablePostSeq)
+    req(!(any(validateExcelPost())))
+    any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePostSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
   })
 
 
@@ -482,11 +563,25 @@ server <- function(input, output) {
 
     errors <- validateExcelPre()
 
+    uiElements <- tagList(NULL)
+
     if (any(errors)) {
-      getErrorMessageWrongExcelSheet(errors)
+      uiElements <- tagList(uiElements,getErrorMessageWrongExcelSheet(errors))
     } else {
-      DTOutput("summaryTablePreSeq")
+      uiElements <- tagList(uiElements, h2("Summary table"), DTOutput("summaryTablePreSeq"))
     }
+
+    if (!(errors["isSheetRefModalitiesMissing"]) & !(errors["isSheetRefModalitiesWrong"])){
+
+      warnings <- extraChecksExcel(input$samplesInfoTablePreSeq$datapath, isExcelBeaujonVersionPre())
+
+      if ( any(warnings$areRefModalitiesMissing) ) {
+        uiElements <- tagList(uiElements, getWarningMessageExcelSheet(warnings, input$samplesInfoTablePreSeq$datapath))
+      }
+
+    }
+
+    uiElements
   })
 
   output$SamplesPostSeq <- renderUI({
@@ -494,11 +589,25 @@ server <- function(input, output) {
 
     errors <- validateExcelPost()
 
+    uiElements <- tagList(NULL)
+
     if (any(errors)) {
-      getErrorMessageWrongExcelSheet(errors)
+      uiElements <- tagList(uiElements,getErrorMessageWrongExcelSheet(errors))
     } else {
-      DTOutput("summaryTablePostSeq")
+      uiElements <- tagList(uiElements, h2("Summary table"), DTOutput("summaryTablePostSeq"))
     }
+
+    if (!(errors["isSheetRefModalitiesMissing"]) & !(errors["isSheetRefModalitiesWrong"])){
+
+      warnings <- extraChecksExcel(input$samplesInfoTablePostSeq$datapath, isExcelBeaujonVersionPost())
+
+      if (any(warnings$areRefModalitiesMissing)) {
+        uiElements <- tagList(uiElements, getWarningMessageExcelSheet(warnings, input$samplesInfoTablePostSeq$datapath))
+      }
+
+    }
+
+    uiElements
   })
 
   # Data stored in a reactive so it will be rendered in the summary data table only if the data exists
