@@ -84,6 +84,26 @@ checkIfRightExcel <- function(pathToExcel){
     isSheetRefModalitiesWrong = if (errors["isSheetRefModalitiesMissing"]) FALSE else checkIfWrongSheet(readRefModalitiesSheet(pathToExcel), templateColnames = CORE_TEMPLATE_REFMODALITIES_COLNAMES)
   )
 
+  errors <- c(
+    errors,
+    isColumnPlatewellWrong = FALSE
+  )
+
+  if (!(errors["isSheetNucleicAcidMissing"]) && !(errors["isSheetNucleicAcidWrong"])) {
+    templateTempfile <- tempfile(fileext = ".xlsx")
+
+    GET(
+      LINK_TEMPLATE_EXT,
+      write_disk(templateTempfile, overwrite = TRUE)
+    )
+
+    dfTemplateNucleicAcidSheet <- readNucleicAcidSheet(templateTempfile)
+    dfCheckedNucleicAcidSheet <- readNucleicAcidSheet(pathToExcel)
+  
+    errors["isColumnPlatewellWrong"] = !(identical(dfTemplateNucleicAcidSheet$Platewell, dfCheckedNucleicAcidSheet$Platewell))
+
+  }
+
   errors
 }
 
@@ -193,6 +213,11 @@ getErrorMessageWrongExcelSheet <- function(errors){
       ),
       br()
     )
+  }
+
+  # Error line for an excel file with the wrong platewell column if needed
+  if (errors["isColumnPlatewellWrong"]){
+    errorMessageLines <- tagList(errorMessageLines, span("- Platewell column in nucleic_acid sheet does not match the one from the template.", style= ERROR_STYLE), br())
   }
 
   errorMessageLines <- tagList(errorMessageLines, br(), span("(Please check the procedure at the following location : ", a("RNASeqProcedureICM", " )", href=LINK_PROCEDURE), style= ERROR_STYLE), br())
@@ -636,13 +661,11 @@ server <- function(input, output) {
   # Checks if the excel provided is the Beajon version or the external one (some additionnal columns in the nucleic_acid sheet of the Beaujon one)
   isExcelBeaujonVersionPre <- reactive({
     req(input$samplesInfoTablePreSeq)
-    req(!(any(validateExcelPre())))
     any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePreSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
   })
 
   isExcelBeaujonVersionPost <- reactive({
     req(input$samplesInfoTablePostSeq)
-    req(!(any(validateExcelPost())))
     any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePostSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
   })
 
@@ -673,7 +696,7 @@ server <- function(input, output) {
       uiElements <- tagList(uiElements, h2("Summary table"), DTOutput("summaryTablePreSeq"))
     }
 
-    if (!(errors["isSheetRefModalitiesMissing"]) & !(errors["isSheetRefModalitiesWrong"])){
+    if (!(errors["isSheetRefModalitiesMissing"]) && !(errors["isSheetRefModalitiesWrong"])){
 
       warnings <- extraChecksExcel(input$samplesInfoTablePreSeq$datapath, isExcelBeaujonVersionPre())
 
