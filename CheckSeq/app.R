@@ -184,7 +184,7 @@ getErrorMessageWrongExcelSheet <- function(errors){
             missingSheets,
             collapse = ", "
           ),
-          ")"
+          ")."
         ),
         style= ERROR_STYLE
       ),
@@ -207,7 +207,7 @@ getErrorMessageWrongExcelSheet <- function(errors){
             wrongSheets,
             collapse = ", "
           ),
-          ")"
+          ")."
         ),
         style= ERROR_STYLE
       ),
@@ -220,7 +220,7 @@ getErrorMessageWrongExcelSheet <- function(errors){
     errorMessageLines <- tagList(errorMessageLines, span("- Platewell column in nucleic_acid sheet does not match the one from the template.", style= ERROR_STYLE), br())
   }
 
-  errorMessageLines <- tagList(errorMessageLines, br(), span("(Please check the procedure at the following location : ", a("RNASeqProcedureICM", " )", href=LINK_PROCEDURE), style= ERROR_STYLE), br())
+  errorMessageLines <- tagList(errorMessageLines, br(), span("(Please check the procedure at the following location : ", a("RNASeqProcedureICM", href=LINK_PROCEDURE), ")", style= ERROR_STYLE), br())
 
   # Error lines combined if multiple
   errorMessageLines
@@ -381,6 +381,17 @@ checkIfProjectMissingFromSerge <- function(df, projectsInSerge, incrementSize = 
   dfFilesWithProjectMissingFromSerge
 }
 
+checkPlateplanContent <- function(rowDfNucleicAcid, dfPlateplan){
+  plateRow = gsub("[0-9]", "", rowDfNucleicAcid["Platewell"])
+  plateCol = gsub("[A-Za-z]", "", rowDfNucleicAcid["Platewell"])
+  id = rowDfNucleicAcid["ID_NucleicAcid"]
+  if (is.na(id)){
+    dfPlateplan[plateRow,plateCol] != "0"
+  }else{
+    id != dfPlateplan[plateRow,plateCol]
+  }
+}
+
 # Factory function for data tables rendered in the results
 createFormattedDataTable <- function(df, colnames, coloredColumn, backgroundColor, color){
   datatable(
@@ -440,6 +451,14 @@ createCheckResultSection <- function(df, colnames ,coloredColumn, errorMessage, 
 
 }
 
+createProcedureSection <- function(uiElements){
+  if (any(grepl(ERROR_COLOR, sapply(uiElements, as.character)))) {
+    tagList(span("Errors found. (Please check the procedure at the following location : ", a("RNASeqProcedureICM", href=LINK_PROCEDURE), " )", style= ERROR_STYLE), br())
+  }else{
+    tagList(NULL)
+  }
+}
+
 createCoreNucleicAcidSheetSections <- function(dfNucleicAcidSheet, dfRefModalitiesSheet, incrementSize = NULL) {
 
   dfNucleicAcidSheetWithLimitedColumns <- dfNucleicAcidSheet[, c( "Species", "Project", "StorageBeforeExtraction", "RnaExtractedFrom", "SampleFrom", "ExtractionMethod")]
@@ -468,7 +487,7 @@ createCoreNucleicAcidSheetSections <- function(dfNucleicAcidSheet, dfRefModaliti
     tagList(
       "Nucleic Acid IDs do not follow the right nomenclature for the following sample(s).",
       br(), 
-      "(Please use IDs containing only letters, number and \"_\" and starting only with a letter (no number or \"_\" at the start of the ID).)"
+      "(Please use IDs containing only letters, number and \"_\" and starting only with a letter (no number or \"_\" at the start of the ID.)"
     ),
     "All Nucleic Acid IDs follow the right nomenclature."
   )
@@ -527,25 +546,21 @@ createCoreNucleicAcidSheetSections <- function(dfNucleicAcidSheet, dfRefModaliti
 
 createCorePlateplanSheetSections <- function(dfNucleicAcidSheet, dfPlateplanSheet, incrementSize = NULL) {
 
-  #wrongNomenclatureRows <- df[checkNomenclatureID(df$ID_NucleicAcid), ]
-  #
-  #checkNomenclatureSection <- createCheckResultSection(
-  #  wrongNomenclatureRows,
-  #  names(wrongNomenclatureRows),
-  #  "ID_NucleicAcid",
-  #  tagList(
-  #    "Nucleic Acid IDs do not follow the right nomenclature for the following sample(s).",
-  #    br(), 
-  #    "(Please use IDs containing only letters, number and \"_\" and starting only with a letter (no number or \"_\" at the start of the ID).)"
-  #  ),
-  #  "All Nucleic Acid IDs follow the right nomenclature."
-  #)
+  wrongPlateplanContentRows <- dfNucleicAcidSheet[apply(dfNucleicAcidSheet, 1, checkPlateplanContent, dfPlateplan = dfPlateplanSheet), ]
+  
+  checkPlateplanContentSection <- createCheckResultSection(
+    wrongPlateplanContentRows,
+    names(wrongPlateplanContentRows),
+    c("ID_NucleicAcid", "Platewell"),
+    "Plateplan table not correctly filled for following sample(s). Please check if the right ID_NucleicAcid is provided at the corresponding coordinates (\"0\" if no ID provided).",
+    "The Plateplan sheet table is filled correctly."
+  )
 
   # Progress update
   if (!is.null(incrementSize)) incProgress(incrementSize)
 
   # Defines UI elements to render for the section of the results about the content of the nucleic_acid sheet of the excel file (Sections about nomenclature, duplicates and already existing files in Serge)
-  checkSamplesSection <- tagList(h3("Plateplan Section"))
+  checkPlateplanContentSection <- tagList(h3("Plateplan Section"), checkPlateplanContentSection)
 
 }
 
@@ -782,19 +797,19 @@ server <- function(input, output) {
 
       incProgress(incrementSize)
 
-
       # Defines UI elements to render for the section of the results about the content of the nucleic_acid sheet of the excel file (Sections about nomenclature, duplicates and already existing files in Serge)
       checkSamplesSection <- createCoreNucleicAcidSheetSections(dataNucleicAcidSheetTablePreSeq, dataRefModalitiesSheetTablePreSeq,incrementSize)
 
       checkPlateplanSection <- createCorePlateplanSheetSections(dataNucleicAcidSheetTablePreSeq, dataPlateplanSheetTablePreSeq, incrementSize)
 
+      validationReportSections <- tagList(checkSamplesSection, checkPlateplanSection)
+
+      redirectToProcedureSection <- createProcedureSection(validationReportSections)
+
+      validationReportSections <- tagList(redirectToProcedureSection, validationReportSections)
+
       #Returns all the sections to render if the excel sheets are right if not only the excel sheet check section
-      resultsPre(
-        tagList(
-          checkSamplesSection,
-          checkPlateplanSection
-        )
-      )
+      resultsPre(validationReportSections)
 
       # Increments the progress bar
       incProgress(incrementSize)
@@ -903,6 +918,8 @@ server <- function(input, output) {
 
           checkPlateplanSection <- createCorePlateplanSheetSections(dataNucleicAcidSheetTablePostSeq, dataPlateplanSheetTablePostSeq, incrementSize)
 
+
+
         }
 
         ssh_disconnect(sshSession)
@@ -916,10 +933,11 @@ server <- function(input, output) {
         } else if (!(isRemoteDirPathRight)) {
           HTML("<b style='color:red; font-size:18px'>Error: Directory not found.</b>")
         } else {
-          tagList(
-            checkSamplesSection,
-            checkPlateplanSection
-          )
+          validationReportSections <- tagList(checkSamplesSection, checkPlateplanSection)
+
+          redirectToProcedureSection <- createProcedureSection(validationReportSections)
+
+          tagList(redirectToProcedureSection, validationReportSections)
         }
       )
 
