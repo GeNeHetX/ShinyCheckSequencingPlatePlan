@@ -1,12 +1,7 @@
 # TODO :
 # Check if right excel by comparing all the content of the sheets to the excel template online (link to the template in the procedure)
-# Ask user to look at the procedure if errors found
-# Check if "Platewell" column is correctly filled by checking the "plateplan" sheet 
-# (This column is filled even if the rest of the line is empty but ignore for the checks if so and show the user what lines are ignored )
-# Check content of columns to match values listed in "RefModalities" for each column
-# Compare RefModalities of the provided excel to the one in the online template excel to check if any values have been added and prompt to ask the person in charge
-# Check if added values in RefModalities have the right nomenclature( First character = letter, only letters, numbers, _and -, no spaces)
-# Maybe do one single datatable with values not in RefModalities but color the wrong cells instead of whole columns
+# Check if added values in RefModalities have the right nomenclature
+#(First character = letter, only letters, numbers, _and -, no spaces)
 # Files names in "ID_scanSVS" and "ID_annotationXML" for the Beaujon version of the template must be identical and have the right extension
 
 
@@ -284,6 +279,11 @@ readPlateplanSheet <- function(pathToExcel){
 readRefModalitiesSheet <- function(pathToExcel){
   df <- read_excel(pathToExcel, sheet = "RefModalities", col_names = TRUE)
   df
+}
+
+# For each RefModalties of the sheet, checks if it has the wrong nomenclature and returns TRUE for each that does
+checkNomenclatureRefModalities <- function(dfRefModalities){
+  apply(dfRefModalities, 2, function(x) grepl("^[^a-zA-Z]",x) | grepl("[^a-zA-Z0-9_-]",x))
 }
 
 # For each ID in the column, checks if it has the right nomenclature and returns a boolean
@@ -564,6 +564,29 @@ createCorePlateplanSheetSections <- function(dfNucleicAcidSheet, dfPlateplanShee
 
 }
 
+createCoreRefModalitiesSheetSections <- function(dfRefModalities, incrementSize = NULL) {
+
+  wrongRefModalitiesNomenclatureMask <- checkNomenclatureRefModalities(dfRefModalities)
+  wrongRefModalitiesNomenclatureValues <- dfRefModalities[wrongRefModalitiesNomenclatureMask]
+
+  checkNomenclatureInRefModalitiesSection <- createCheckResultSection(
+    if (any(wrongRefModalitiesNomenclatureMask)) dfRefModalities else data.frame(),
+    names(dfRefModalities),
+    names(dfRefModalities),
+    "Following values do not have the right nomenclature in the RefModalities sheet.",
+    "All values in the RefModalities sheet have the right nomenclature.",
+    backgroundColorDT = styleEqual(wrongRefModalitiesNomenclatureValues, ERROR_COLOR),
+    colorDT = styleEqual(wrongRefModalitiesNomenclatureValues, "white")
+  )
+
+  # Progress update
+  if (!is.null(incrementSize)) incProgress(incrementSize)
+
+  # Defines UI elements to render for the section of the results about the content of the nucleic_acid sheet of the excel file (Sections about nomenclature, duplicates and already existing files in Serge)
+  checkNomenclatureInRefModalitiesSection <- tagList(h3("RefModalities Section"), checkNomenclatureInRefModalitiesSection)
+
+}
+
 #==================
 # Shiny App Setup
 #==================
@@ -802,7 +825,9 @@ server <- function(input, output) {
 
       checkPlateplanSection <- createCorePlateplanSheetSections(dataNucleicAcidSheetTablePreSeq, dataPlateplanSheetTablePreSeq, incrementSize)
 
-      validationReportSections <- tagList(checkSamplesSection, checkPlateplanSection)
+      checkRefModalitiesSection <- createCoreRefModalitiesSheetSections(dataRefModalitiesSheetTablePreSeq, incrementSize)
+
+      validationReportSections <- tagList(checkSamplesSection, checkPlateplanSection, checkRefModalitiesSection)
 
       redirectToProcedureSection <- createProcedureSection(validationReportSections)
 
@@ -918,6 +943,8 @@ server <- function(input, output) {
 
           checkPlateplanSection <- createCorePlateplanSheetSections(dataNucleicAcidSheetTablePostSeq, dataPlateplanSheetTablePostSeq, incrementSize)
 
+          checkRefModalitiesSection <- createCoreRefModalitiesSheetSections(dataRefModalitiesSheetTablePostSeq, incrementSize)
+
 
 
         }
@@ -933,7 +960,7 @@ server <- function(input, output) {
         } else if (!(isRemoteDirPathRight)) {
           HTML("<b style='color:red; font-size:18px'>Error: Directory not found.</b>")
         } else {
-          validationReportSections <- tagList(checkSamplesSection, checkPlateplanSection)
+          validationReportSections <- tagList(checkSamplesSection, checkPlateplanSection, checkRefModalitiesSection)
 
           redirectToProcedureSection <- createProcedureSection(validationReportSections)
 
