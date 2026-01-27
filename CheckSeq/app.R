@@ -261,7 +261,7 @@ toggleSubmitButton <- function(errors, submitButtonTag){
 
 # Returns a slightly formated version of the data in the nucleic-acid sheet of the excel file as a dataframe
 readNucleicAcidSheet <- function(pathToExcel){
-  df <- read_excel(pathToExcel, sheet = "nucleic_acid")
+  df <- read_excel(pathToExcel, sheet = "nucleic_acid", na= c("", "NA"))
   names(df)[1] <- "Line_Number"
   df
 }
@@ -283,7 +283,45 @@ readRefModalitiesSheet <- function(pathToExcel){
 
 # For each RefModalties of the sheet, checks if it has the wrong nomenclature and returns TRUE for each that does
 checkNomenclatureRefModalities <- function(dfRefModalities){
-  apply(dfRefModalities, 2, function(x) grepl("^[^a-zA-Z]",x) | grepl("[^a-zA-Z0-9_-]",x))
+  apply(dfRefModalities, 2, function(x) grepl("^[^a-zA-Z]",x) | grepl("[^a-zA-Z0-9_&=+-]",x))
+}
+
+# For each sample in the nucleic_acid sheet, checks if the names of the svs and xml files are not matching.
+checkFileNamesBeaujonColumns <- function(dfNucleicAcid){
+
+  print(dfNucleicAcid)
+
+  files_missing <- is.na(dfNucleicAcid$ID_scanSVS) | is.na(dfNucleicAcid$ID_annotationXML)
+
+  svs_base <- sub("\\.svs$", "", dfNucleicAcid$ID_scanSVS)
+  xml_base <- sub("\\.xml$", "", dfNucleicAcid$ID_annotationXML)
+
+  id_in_svs <- mapply(
+    function(id, svs) !is.na(svs) && grepl(id, svs, fixed = TRUE),
+    dfNucleicAcid$ID_NucleicAcid,
+    dfNucleicAcid$ID_scanSVS
+  )
+
+  id_in_xml <- mapply(
+    function(id, xml) !is.na(xml) && grepl(id, xml, fixed = TRUE),
+    dfNucleicAcid$ID_NucleicAcid,
+    dfNucleicAcid$ID_annotationXML
+  )
+
+  valid_files <-
+    grepl("\\.svs$", dfNucleicAcid$ID_scanSVS) &
+    grepl("\\.xml$", dfNucleicAcid$ID_annotationXML) &
+    svs_base == xml_base &
+    id_in_svs &
+    id_in_xml
+
+  error_files <- ifelse(
+    files_missing,
+    FALSE,
+    !valid_files
+  )
+
+
 }
 
 # For each ID in the column, checks if it has the right nomenclature and returns a boolean
@@ -544,6 +582,23 @@ createCoreNucleicAcidSheetSections <- function(dfNucleicAcidSheet, dfRefModaliti
 
 }
 
+createBeaujonNucleicAcidSections <- function(dfNucleicAcidSheet, incrementSize = NULL){
+  
+  dfFileNamesNotMatchingBeaujonColumns <- dfNucleicAcidSheet[checkFileNamesBeaujonColumns(dfNucleicAcidSheet),]
+
+  if (!is.null(incrementSize)) incProgress(incrementSize)
+
+  checkBeaujonColumnsSection <- createCheckResultSection(
+    dfFileNamesNotMatchingBeaujonColumns, 
+    names(dfFileNamesNotMatchingBeaujonColumns),
+    c("ID_NucleicAcid", "ID_scanSVS", "ID_annotationXML"),
+    "Names of the files do not match for the following samples.",
+    "All svs and xml file names are correct."
+  )
+
+
+}
+
 createCorePlateplanSheetSections <- function(dfNucleicAcidSheet, dfPlateplanSheet, incrementSize = NULL) {
 
   wrongPlateplanContentRows <- dfNucleicAcidSheet[apply(dfNucleicAcidSheet, 1, checkPlateplanContent, dfPlateplan = dfPlateplanSheet), ]
@@ -699,12 +754,12 @@ server <- function(input, output) {
   # Checks if the excel provided is the Beajon version or the external one (some additionnal columns in the nucleic_acid sheet of the Beaujon one)
   isExcelBeaujonVersionPre <- reactive({
     req(input$samplesInfoTablePreSeq)
-    any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePreSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
+    !any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePreSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
   })
 
   isExcelBeaujonVersionPost <- reactive({
     req(input$samplesInfoTablePostSeq)
-    any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePostSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
+    !any(checkIfWrongSheet(readNucleicAcidSheet(input$samplesInfoTablePostSeq$datapath), templateColnames = BEAUJON_TEMPLATE_EXTRA_NUCLEIC_ACID_COLNAMES))
   })
 
 
@@ -823,6 +878,16 @@ server <- function(input, output) {
       # Defines UI elements to render for the section of the results about the content of the nucleic_acid sheet of the excel file (Sections about nomenclature, duplicates and already existing files in Serge)
       checkSamplesSection <- createCoreNucleicAcidSheetSections(dataNucleicAcidSheetTablePreSeq, dataRefModalitiesSheetTablePreSeq,incrementSize)
 
+      print(isExcelBeaujonVersionPre())
+
+      if (isExcelBeaujonVersionPre()){
+        checkBeaujonColumnsSection <- createBeaujonNucleicAcidSections(dataNucleicAcidSheetTablePreSeq, incrementSize)
+      } else {
+        checkBeaujonColumnsSection <- tagList(NULL)
+      }
+
+      checkSamplesSection <- tagList(checkSamplesSection, checkBeaujonColumnsSection)
+
       checkPlateplanSection <- createCorePlateplanSheetSections(dataNucleicAcidSheetTablePreSeq, dataPlateplanSheetTablePreSeq, incrementSize)
 
       checkRefModalitiesSection <- createCoreRefModalitiesSheetSections(dataRefModalitiesSheetTablePreSeq, incrementSize)
@@ -938,14 +1003,18 @@ server <- function(input, output) {
             "Files found for all samples."
           )
 
+          if (isExcelBeaujonVersionPost()){
+            checkBeaujonColumnsSection <- createBeaujonNucleicAcidSections(dataNucleicAcidSheetTablePostSeq, incrementSize)
+          } else {
+            checkBeaujonColumnsSection <- tagList(NULL)
+          }
+
           # Defines UI elements to render for the section of the results about the content of the nucleic_acid sheet of the excel file (Sections about nomenclature, duplicates and already existing files in Serge)
-          checkSamplesSection <- tagList( checkSamplesSection, checkFilesInIFBSection)
+          checkSamplesSection <- tagList( checkSamplesSection, checkFilesInIFBSection, checkBeaujonColumnsSection)
 
           checkPlateplanSection <- createCorePlateplanSheetSections(dataNucleicAcidSheetTablePostSeq, dataPlateplanSheetTablePostSeq, incrementSize)
 
           checkRefModalitiesSection <- createCoreRefModalitiesSheetSections(dataRefModalitiesSheetTablePostSeq, incrementSize)
-
-
 
         }
 
