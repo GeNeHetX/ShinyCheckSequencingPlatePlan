@@ -289,37 +289,32 @@ checkNomenclatureRefModalities <- function(dfRefModalities){
 # For each sample in the nucleic_acid sheet, checks if the names of the svs and xml files are not matching.
 checkFileNamesBeaujonColumns <- function(dfNucleicAcid){
 
-  print(dfNucleicAcid)
+  svsMissing <- is.na(dfNucleicAcid$ID_scanSVS)
+  xmlMissing <- is.na(dfNucleicAcid$ID_annotationXML)
 
-  files_missing <- is.na(dfNucleicAcid$ID_scanSVS) | is.na(dfNucleicAcid$ID_annotationXML)
+  svsBase <- sub("\\.svs$", "", dfNucleicAcid$ID_scanSVS)
+  xmlBase <- sub("\\.xml$", "", dfNucleicAcid$ID_annotationXML)
 
-  svs_base <- sub("\\.svs$", "", dfNucleicAcid$ID_scanSVS)
-  xml_base <- sub("\\.xml$", "", dfNucleicAcid$ID_annotationXML)
-
-  id_in_svs <- mapply(
-    function(id, svs) !is.na(svs) && grepl(id, svs, fixed = TRUE),
+  idNotInSvs <- mapply(
+    function(id, svs) if (is.na(svs)) FALSE else !grepl(id, svs, fixed = TRUE),
     dfNucleicAcid$ID_NucleicAcid,
     dfNucleicAcid$ID_scanSVS
   )
 
-  id_in_xml <- mapply(
-    function(id, xml) !is.na(xml) && grepl(id, xml, fixed = TRUE),
+  idNotInXml <- mapply(
+    function(id, xml) if (is.na(xml)) FALSE else !grepl(id, xml, fixed = TRUE),
     dfNucleicAcid$ID_NucleicAcid,
     dfNucleicAcid$ID_annotationXML
   )
 
-  valid_files <-
-    grepl("\\.svs$", dfNucleicAcid$ID_scanSVS) &
-    grepl("\\.xml$", dfNucleicAcid$ID_annotationXML) &
-    svs_base == xml_base &
-    id_in_svs &
-    id_in_xml
+  invalidFiles <-
+    (!svsMissing & !grepl("\\.svs$", dfNucleicAcid$ID_scanSVS)) |
+    (!xmlMissing & !grepl("\\.xml$", dfNucleicAcid$ID_annotationXML)) |
+    (!(svsMissing | xmlMissing) & (svsBase != xmlBase)) |
+    (!svsMissing & idNotInSvs) |
+    (!xmlMissing & idNotInXml)
 
-  error_files <- ifelse(
-    files_missing,
-    FALSE,
-    !valid_files
-  )
+  return(invalidFiles)
 
 
 }
@@ -592,7 +587,11 @@ createBeaujonNucleicAcidSections <- function(dfNucleicAcidSheet, incrementSize =
     dfFileNamesNotMatchingBeaujonColumns, 
     names(dfFileNamesNotMatchingBeaujonColumns),
     c("ID_NucleicAcid", "ID_scanSVS", "ID_annotationXML"),
-    "Names of the files do not match for the following samples.",
+    tagList(
+      "Names of the svs and/or xml files for the following samples contain errors.", 
+      br(), 
+      "(File names must contain the corresponding sample ID, their respective extensions (.svs or .xml) and be identical except for the extension if both are provided.)"
+    ),
     "All svs and xml file names are correct."
   )
 
@@ -877,8 +876,6 @@ server <- function(input, output) {
 
       # Defines UI elements to render for the section of the results about the content of the nucleic_acid sheet of the excel file (Sections about nomenclature, duplicates and already existing files in Serge)
       checkSamplesSection <- createCoreNucleicAcidSheetSections(dataNucleicAcidSheetTablePreSeq, dataRefModalitiesSheetTablePreSeq,incrementSize)
-
-      print(isExcelBeaujonVersionPre())
 
       if (isExcelBeaujonVersionPre()){
         checkBeaujonColumnsSection <- createBeaujonNucleicAcidSections(dataNucleicAcidSheetTablePreSeq, incrementSize)
